@@ -1,0 +1,82 @@
+{
+  "header": {
+    "BeginString": "FIX.4.2",
+    "BodyLength": 0,
+    "MsgType": "Logon",
+    "SenderCompID": "FIX_Engine",
+    "TargetCompID": "XYZExchange",
+    "MsgSeqNum": 0,
+    "SendingTime": 0
+  },
+  "admin": {
+    "Logon": {
+      "EncryptMethod": "0",
+      "HeartBtInt": "10",
+      "ResetSeqNumFlag": "N"
+    },
+    "Logout": {
+      "Text": "N"
+    },
+    "Heartbeat": {
+      "TestReqID": "TEST"
+    },
+    "Test_Request": {
+      "TestReqID": "TEST"
+    },
+    "Resend_Request": {
+      "BeginSeqNo": "0",
+      "EndSeqNo": "0"
+    },
+    "Sequence_Reset": {
+      "NewSeqNo": "0"
+    }
+  },
+  "app": {
+    "New_Order_Single": {
+      "ClOrdID": 0,
+      "Account": "XYZ",
+      "Symbol": "IBM",
+      "SecurityID": "IBM",
+      "Side": "BUY",
+      "OrderQty": 0,
+      "TransactTime": 0,
+      "OrdType": "MARKET",
+      "TimeInForce": "DAY",
+      "Price": 0
+    },
+    "Order_Cancel_Request": {
+      "OrigClOrdID": 0,
+      "ClOrdID": 0,
+      "TransactTime": 0,
+      "OrderQty": 0
+    },
+    "Order_Cancel_Replace_Request": {
+      "OrigClOrdID": 0,
+      "ClOrdID": 0,
+      "HandlInst": 0,
+      "Symbol": 0,
+      "Side": 0,
+      "TransactTime": 0,
+      "OrdType": 0
+    },
+    "Execution_Report": {
+      "OrderID": 0,
+      "ExecID": 0,
+      "ExecTransType": 0,
+      "ExecType": 0,
+      "OrdStatus": 0,
+      "Symbol": 0,
+      "Side": 0,
+      "LeavesQty": 0,
+      "CumQty": 0,
+      "AvgPx": 0
+    },
+    "Order_Cancel_Reject": {
+      "OrderID": 0,
+      "ClOrdID": 0,
+      "OrigClOrdID": 0,
+      "OrdStatus": 0,
+      "CxlRejResponseTo": 0
+    }
+  }
+}
