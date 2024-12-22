@@ -1,15 +1,15 @@
-use serde::{Serialize, Deserialize};
+use bincode;
 use memmap2::{MmapMut, MmapOptions};
+use prettytable::{row, Cell, Row, Table};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::sync::RwLock;
-use bincode;
-use prettytable::{Table, Row, Cell, row};
 
 use indexmap::IndexMap;
-use std::sync::Arc;
-use std::error::Error;
 use log::{error, info};
+use std::error::Error;
+use std::sync::Arc;
 
 use crate::parse_xml::FixError;
 
@@ -40,9 +40,7 @@ impl OrderStore {
             .open(file_path)?;
         file.set_len(size as u64)?;
 
-        let mmap = unsafe {
-            MmapOptions::new().map_mut(&file)?
-        };
+        let mmap = unsafe { MmapOptions::new().map_mut(&file)? };
 
         Ok(Self {
             orders: RwLock::new(HashMap::new()),
@@ -122,7 +120,17 @@ impl OrderStore {
     pub fn print_orders(&self) -> Result<String, FixError> {
         let orders = self.orders.read().unwrap();
         let mut table = Table::new();
-        table.add_row(row!["ID", "Account", "Symbol", "Side", "Quantity", "Price", "OrdType", "TransactTime", "OrdStatus"]);
+        table.add_row(row![
+            "ID",
+            "Account",
+            "Symbol",
+            "Side",
+            "Quantity",
+            "Price",
+            "OrdType",
+            "TransactTime",
+            "OrdStatus"
+        ]);
 
         for order in orders.values() {
             table.add_row(Row::new(vec![
@@ -144,14 +152,35 @@ impl OrderStore {
     }
 }
 
-pub fn add_order_to_store(order_store: Arc<OrderStore>, msg_map: &IndexMap<String, String>) -> Result<(), Box<dyn Error>> {
+pub fn add_order_to_store(
+    order_store: Arc<OrderStore>,
+    msg_map: &IndexMap<String, String>,
+) -> Result<(), Box<dyn Error>> {
     let order = Order {
-        id: msg_map.get("ClOrdID").unwrap().to_string().parse().expect("Invalid ClOrdID"),
-        account: msg_map.get("Account").unwrap_or(&"".to_string()).to_string(),
+        id: msg_map
+            .get("ClOrdID")
+            .unwrap()
+            .to_string()
+            .parse()
+            .expect("Invalid ClOrdID"),
+        account: msg_map
+            .get("Account")
+            .unwrap_or(&"".to_string())
+            .to_string(),
         symbol: msg_map.get("Symbol").unwrap().to_string(),
         side: msg_map.get("Side").unwrap().to_string(),
-        quantity: msg_map.get("OrderQty").unwrap().to_string().parse().expect("Invalid OrderQty"),
-        price: msg_map.get("Price").unwrap().to_string().parse().expect("Invalid Price"),
+        quantity: msg_map
+            .get("OrderQty")
+            .unwrap()
+            .to_string()
+            .parse()
+            .expect("Invalid OrderQty"),
+        price: msg_map
+            .get("Price")
+            .unwrap()
+            .to_string()
+            .parse()
+            .expect("Invalid Price"),
         ordtype: msg_map.get("OrdType").unwrap().to_string(),
         transacttime: msg_map.get("TransactTime").unwrap().to_string(),
         ordstatus: msg_map.get("OrdStatus").unwrap().to_string(),
@@ -164,14 +193,35 @@ pub fn add_order_to_store(order_store: Arc<OrderStore>, msg_map: &IndexMap<Strin
     Ok(())
 }
 
-pub fn update_order_in_store(order_store: Arc<OrderStore>, msg_map: &IndexMap<String, String>) -> Result<(), Box<dyn Error>> {
+pub fn update_order_in_store(
+    order_store: Arc<OrderStore>,
+    msg_map: &IndexMap<String, String>,
+) -> Result<(), Box<dyn Error>> {
     let order = Order {
-        id: msg_map.get("ClOrdID").unwrap().to_string().parse().expect("Invalid ClOrdID"),
-        account: msg_map.get("Account").unwrap_or(&"".to_string()).to_string(),
+        id: msg_map
+            .get("ClOrdID")
+            .unwrap()
+            .to_string()
+            .parse()
+            .expect("Invalid ClOrdID"),
+        account: msg_map
+            .get("Account")
+            .unwrap_or(&"".to_string())
+            .to_string(),
         symbol: msg_map.get("Symbol").unwrap().to_string(),
         side: msg_map.get("Side").unwrap().to_string(),
-        quantity: msg_map.get("OrderQty").unwrap().to_string().parse().expect("Invalid OrderQty"),
-        price: msg_map.get("Price").unwrap().to_string().parse().expect("Invalid Price"),
+        quantity: msg_map
+            .get("OrderQty")
+            .unwrap()
+            .to_string()
+            .parse()
+            .expect("Invalid OrderQty"),
+        price: msg_map
+            .get("Price")
+            .unwrap()
+            .to_string()
+            .parse()
+            .expect("Invalid Price"),
         ordtype: msg_map.get("OrdType").unwrap().to_string(),
         transacttime: msg_map.get("TransactTime").unwrap().to_string(),
         ordstatus: msg_map.get("OrdStatus").unwrap().to_string(),
@@ -184,8 +234,16 @@ pub fn update_order_in_store(order_store: Arc<OrderStore>, msg_map: &IndexMap<St
     Ok(())
 }
 
-pub fn remove_order_from_store(order_store: Arc<OrderStore>, msg_map: &IndexMap<String, String>) -> Result<(), Box<dyn Error>> {
-    let order_id = msg_map.get("ClOrdID").unwrap().to_string().parse().expect("Invalid ClOrdID");
+pub fn remove_order_from_store(
+    order_store: Arc<OrderStore>,
+    msg_map: &IndexMap<String, String>,
+) -> Result<(), Box<dyn Error>> {
+    let order_id = msg_map
+        .get("ClOrdID")
+        .unwrap()
+        .to_string()
+        .parse()
+        .expect("Invalid ClOrdID");
     // order_store.remove_order(order_id)?;
     match order_store.remove_order(order_id) {
         Ok(_) => info!("Order removed successfully: {}", order_id),

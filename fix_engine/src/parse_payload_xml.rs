@@ -1,10 +1,10 @@
-use std::{collections::HashMap, fs, io};
 use std::fs::File;
 use std::io::{BufReader, Error as IOError};
+use std::{collections::HashMap, fs, io};
 
-use log::error;
-use quick_xml::{Error as XmlError, events::Event, Reader};
 use crate::parse_xml::FixTag;
+use log::error;
+use quick_xml::{events::Event, Error as XmlError, Reader};
 
 #[derive(Debug)]
 pub enum FixError {
@@ -37,8 +37,8 @@ impl Clone for FixError {
 
 #[derive(Debug, Clone)]
 pub struct FixMsgTag {
-    msgcat: String,
-    msgname: String,
+    pub(crate) msgcat: String,
+    pub(crate) msgname: String,
     pub(crate) field: Option<HashMap<String, String>>,
 }
 
@@ -86,48 +86,46 @@ pub fn parse_fix_payload_xml(
                     }
                 }
             }
-            Ok(Event::Start(e)) => {
-                match e.name() {
-                    quick_xml::name::QName(FIX_MESSAGE_TAG) => {
-                        let (_msg_name, msg_type, msg_cat) = parse_message(&e)?;
-                        if let Some(mapped_msg_name) = msgtype_name_map.get(&msg_type) {
-                            let fix_msg_tag = FixMsgTag {
-                                msgcat: msg_cat.clone(),
-                                msgname: mapped_msg_name.clone(),
-                                field: None,
-                            };
-                            fixname_map.insert(mapped_msg_name.clone(), fix_msg_tag.clone());
-                            fixnumber_map.insert(msg_type.clone(), fix_msg_tag);
+            Ok(Event::Start(e)) => match e.name() {
+                quick_xml::name::QName(FIX_MESSAGE_TAG) => {
+                    let (_msg_name, msg_type, msg_cat) = parse_message(&e)?;
+                    if let Some(mapped_msg_name) = msgtype_name_map.get(&msg_type) {
+                        let fix_msg_tag = FixMsgTag {
+                            msgcat: msg_cat.clone(),
+                            msgname: mapped_msg_name.clone(),
+                            field: None,
+                        };
+                        fixname_map.insert(mapped_msg_name.clone(), fix_msg_tag.clone());
+                        fixnumber_map.insert(msg_type.clone(), fix_msg_tag);
 
-                            current_msg_name = mapped_msg_name.clone();
-                            current_msg_type = msg_type.clone();
-                        }
+                        current_msg_name = mapped_msg_name.clone();
+                        current_msg_type = msg_type.clone();
                     }
-                    quick_xml::name::QName(HEADER_TAG) => {
-                        handle_special_tag(
-                            "HEADER".to_string(),
-                            "<".to_string(),
-                            "header".to_string(),
-                            &mut fixname_map,
-                            &mut fixnumber_map,
-                            &mut current_msg_name,
-                            &mut current_msg_type,
-                        );
-                    }
-                    quick_xml::name::QName(TRAILER_TAG) => {
-                        handle_special_tag(
-                            "TRAILER".to_string(),
-                            ">".to_string(),
-                            "trailer".to_string(),
-                            &mut fixname_map,
-                            &mut fixnumber_map,
-                            &mut current_msg_name,
-                            &mut current_msg_type,
-                        );
-                    }
-                    _ => {}
                 }
-            }
+                quick_xml::name::QName(HEADER_TAG) => {
+                    handle_special_tag(
+                        "HEADER".to_string(),
+                        "<".to_string(),
+                        "header".to_string(),
+                        &mut fixname_map,
+                        &mut fixnumber_map,
+                        &mut current_msg_name,
+                        &mut current_msg_type,
+                    );
+                }
+                quick_xml::name::QName(TRAILER_TAG) => {
+                    handle_special_tag(
+                        "TRAILER".to_string(),
+                        ">".to_string(),
+                        "trailer".to_string(),
+                        &mut fixname_map,
+                        &mut fixnumber_map,
+                        &mut current_msg_name,
+                        &mut current_msg_type,
+                    );
+                }
+                _ => {}
+            },
             Ok(Event::End(ref e)) => {
                 if [FIX_MESSAGE_TAG, HEADER_TAG, TRAILER_TAG].contains(&e.name().as_ref()) {
                     if let Some(tag) = fixname_map.get_mut(&current_msg_name) {
@@ -151,7 +149,9 @@ pub fn parse_fix_payload_xml(
     Ok((fixname_map, fixnumber_map))
 }
 
-fn parse_message(event: &quick_xml::events::BytesStart) -> Result<(String, String, String), FixError> {
+fn parse_message(
+    event: &quick_xml::events::BytesStart,
+) -> Result<(String, String, String), FixError> {
     let mut msgname = None;
     let mut msgtype = None;
     let mut msgcat = None;
@@ -160,7 +160,9 @@ fn parse_message(event: &quick_xml::events::BytesStart) -> Result<(String, Strin
         let attr = attr.map_err(|e| FixError::XmlError(XmlError::from(e)))?;
         match attr.key {
             quick_xml::name::QName(b"name") => msgname = Some(attr.unescape_value()?.into_owned()),
-            quick_xml::name::QName(b"msgtype") => msgtype = Some(attr.unescape_value()?.into_owned()),
+            quick_xml::name::QName(b"msgtype") => {
+                msgtype = Some(attr.unescape_value()?.into_owned())
+            }
             quick_xml::name::QName(b"msgcat") => msgcat = Some(attr.unescape_value()?.into_owned()),
             _ => {}
         }
@@ -168,7 +170,9 @@ fn parse_message(event: &quick_xml::events::BytesStart) -> Result<(String, Strin
     if let (Some(msg_name), Some(msg_type), Some(msg_cat)) = (msgname, msgtype, msgcat) {
         Ok((msg_name, msg_type, msg_cat))
     } else {
-        Err(FixError::ParseError("Incomplete message attributes".to_string()))
+        Err(FixError::ParseError(
+            "Incomplete message attributes".to_string(),
+        ))
     }
 }
 
@@ -179,15 +183,21 @@ fn parse_field(event: &quick_xml::events::BytesStart) -> Result<(String, String)
     for attr in event.attributes() {
         let attr = attr.map_err(|e| FixError::XmlError(XmlError::from(e)))?;
         match attr.key {
-            quick_xml::name::QName(b"name") => field_name = Some(attr.unescape_value()?.into_owned()),
-            quick_xml::name::QName(b"required") => required = Some(attr.unescape_value()?.into_owned()),
+            quick_xml::name::QName(b"name") => {
+                field_name = Some(attr.unescape_value()?.into_owned())
+            }
+            quick_xml::name::QName(b"required") => {
+                required = Some(attr.unescape_value()?.into_owned())
+            }
             _ => {}
         }
     }
     if let (Some(field_name), Some(required)) = (field_name, required) {
         Ok((field_name, required))
     } else {
-        Err(FixError::ParseError("Incomplete field attributes".to_string()))
+        Err(FixError::ParseError(
+            "Incomplete field attributes".to_string(),
+        ))
     }
 }
 
@@ -211,4 +221,161 @@ fn handle_special_tag(
 
     *current_msg_name = msg_name;
     *current_msg_type = msg_type;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use quick_xml::events::BytesStart;
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_parse_message_success() {
+        let mut event = BytesStart::new("message");
+        event.push_attribute(("name", "Order"));
+        event.push_attribute(("msgtype", "D"));
+        event.push_attribute(("msgcat", "app"));
+
+        let result = parse_message(&event);
+        assert!(result.is_ok());
+
+        let (msgname, msgtype, msgcat) = result.unwrap();
+        assert_eq!(msgname, "Order");
+        assert_eq!(msgtype, "D");
+        assert_eq!(msgcat, "app");
+    }
+
+    #[test]
+    fn test_parse_message_missing_attributes() {
+        let event = BytesStart::new("message"); // Missing attributes
+
+        let result = parse_message(&event);
+        assert!(result.is_err());
+
+        if let FixError::ParseError(err) = result.unwrap_err() {
+            assert_eq!(err, "Incomplete message attributes".to_string());
+        } else {
+            panic!("Expected FixError::ParseError");
+        }
+    }
+
+    #[test]
+    fn test_parse_field_success() {
+        let mut event = BytesStart::new("field");
+        event.push_attribute(("name", "ClOrdID"));
+        event.push_attribute(("required", "Y"));
+
+        let result = parse_field(&event);
+        assert!(result.is_ok());
+
+        let (field_name, required) = result.unwrap();
+        assert_eq!(field_name, "ClOrdID");
+        assert_eq!(required, "Y");
+    }
+
+    #[test]
+    fn test_parse_field_missing_attributes() {
+        let event = BytesStart::new("field"); // Missing attributes
+
+        let result = parse_field(&event);
+        assert!(result.is_err());
+
+        if let FixError::ParseError(err) = result.unwrap_err() {
+            assert_eq!(err, "Incomplete field attributes".to_string());
+        } else {
+            panic!("Expected FixError::ParseError");
+        }
+    }
+
+    #[test]
+    fn test_handle_special_tag() {
+        let mut fixname_map: HashMap<String, FixMsgTag> = HashMap::new();
+        let mut fixnumber_map: HashMap<String, FixMsgTag> = HashMap::new();
+        let mut current_msg_name = String::new();
+        let mut current_msg_type = String::new();
+
+        handle_special_tag(
+            "HEADER".to_string(),
+            "<".to_string(),
+            "header".to_string(),
+            &mut fixname_map,
+            &mut fixnumber_map,
+            &mut current_msg_name,
+            &mut current_msg_type,
+        );
+
+        assert!(fixname_map.contains_key("HEADER"));
+        let fix_msg_tag = fixname_map.get("HEADER").unwrap();
+        assert_eq!(fix_msg_tag.msgname, "HEADER");
+        assert_eq!(fix_msg_tag.msgcat, "header");
+        assert!(fix_msg_tag.field.is_none());
+
+        assert!(fixnumber_map.contains_key("<"));
+        let fix_msg_tag = fixnumber_map.get("<").unwrap();
+        assert_eq!(fix_msg_tag.msgname, "HEADER");
+        assert_eq!(fix_msg_tag.msgcat, "header");
+        assert!(fix_msg_tag.field.is_none());
+
+        assert_eq!(current_msg_name, "HEADER");
+        assert_eq!(current_msg_type, "<");
+    }
+
+    #[test]
+    fn test_parse_fix_payload_xml_file_not_found() {
+        let msgtype_name_map: HashMap<String, String> = HashMap::new();
+        let fix_tagname_number_map: HashMap<String, FixTag> = HashMap::new();
+
+        let result = parse_fix_payload_xml(
+            "nonexistent_file.xml",
+            &msgtype_name_map,
+            &fix_tagname_number_map,
+        );
+
+        assert!(result.is_ok());
+        let (fixname_map, fixnumber_map) = result.unwrap();
+        assert!(fixname_map.is_empty());
+        assert!(fixnumber_map.is_empty());
+    }
+
+    #[test]
+    fn test_parse_fix_payload_xml_success() {
+        let xml_data = r#"
+            <fix>
+                <message name="TestMessage" msgtype="T" msgcat="app">
+                    <field name="Field1" required="Y" />
+                    <field name="Field2" required="N" />
+                </message>
+            </fix>
+        "#;
+
+        let file_path = "test_payload.xml";
+        std::fs::write(file_path, xml_data).unwrap();
+
+        let mut msgtype_name_map: HashMap<String, String> = HashMap::new();
+        msgtype_name_map.insert("T".to_string(), "TestMessage".to_string());
+
+        let fix_tagname_number_map: HashMap<String, FixTag> = HashMap::new();
+
+        let result =
+            parse_fix_payload_xml(file_path, &msgtype_name_map, &fix_tagname_number_map);
+
+        // Delete the file after test
+        std::fs::remove_file(file_path).unwrap();
+
+        assert!(result.is_ok());
+
+        let (fixname_map, fixnumber_map) = result.unwrap();
+        assert!(fixname_map.contains_key("TestMessage"));
+        let tag = fixname_map.get("TestMessage").unwrap();
+        assert_eq!(tag.msgname, "TestMessage");
+        assert_eq!(tag.msgcat, "app");
+        assert!(tag.field.is_some());
+
+        let fields = tag.field.as_ref().unwrap();
+        assert!(fields.contains_key("Field1"));
+        assert_eq!(fields.get("Field1").unwrap(), "Y");
+        assert!(!fields.contains_key("Field2"));
+
+        assert!(fixnumber_map.contains_key("T"));
+    }
 }

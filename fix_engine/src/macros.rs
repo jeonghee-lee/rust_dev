@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicU64, Ordering};
 use chrono::{DateTime, TimeZone, Utc};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 pub struct AtomicDateTime {
     inner: AtomicU64,
@@ -15,7 +15,7 @@ impl AtomicDateTime {
 
     pub fn load(&self, order: Ordering) -> DateTime<Utc> {
         let timestamp = self.inner.load(order) as i64;
-        Utc.timestamp(timestamp, 0)
+        Utc.timestamp_opt(timestamp, 0).unwrap()
     }
 
     pub fn store(&self, time: DateTime<Utc>, order: Ordering) {

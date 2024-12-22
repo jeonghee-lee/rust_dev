@@ -1,24 +1,24 @@
+use chrono::Utc;
+use indexmap::IndexMap;
+use log::{error, info};
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::net::TcpStream;
 use std::process;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::Ordering;
-use chrono::Utc;
-use indexmap::IndexMap;
-use log::{error, info};
+use std::sync::{Arc, Mutex};
 
-use crate::message_converter::{msgtype2fixmsg, fixmsg2msgtype};
-use crate::parse_xml::{FixTag, print_fix_message};
-use crate::{IS_INITIATOR, LAST_SENT_TIME, MessageMap, RECEIVED_LOGON, SENT_LOGON};
-use crate::orderstore::{add_order_to_store, OrderStore, update_order_in_store};
+use crate::message_converter::{fixmsg2msgtype, msgtype2fixmsg};
+use crate::orderstore::{add_order_to_store, update_order_in_store, OrderStore};
+use crate::parse_xml::{print_fix_message, FixTag};
 use crate::sequence::SequenceNumberStore;
+use crate::{MessageMap, IS_INITIATOR, LAST_SENT_TIME, RECEIVED_LOGON, SENT_LOGON};
 
 pub fn read_and_route_messages(
     stream: &mut TcpStream,
     all_msg_map_collection: &MessageMap,
     seq_store: Arc<SequenceNumberStore>,
-    order_store: Arc<OrderStore>
+    order_store: Arc<OrderStore>,
 ) -> Result<(), io::Error> {
     let mut buf = [0; 1024];
     loop {
@@ -51,7 +51,7 @@ fn handle_incoming_message(
     stream: &mut TcpStream,
     all_msg_map_collection: &MessageMap,
     seq_store: Arc<SequenceNumberStore>,
-    order_store: Arc<OrderStore>
+    order_store: Arc<OrderStore>,
 ) -> Result<(), io::Error> {
     if let Ok(message) = std::str::from_utf8(buf) {
         info!("Received message: {}", message);
@@ -76,9 +76,10 @@ fn process_fix_message(
     stream: &mut TcpStream,
     all_msg_map_collection: &MessageMap,
     seq_store: Arc<SequenceNumberStore>,
-    order_store: Arc<OrderStore>
+    order_store: Arc<OrderStore>,
 ) -> Result<(), io::Error> {
-    if let Ok(fix_details) = print_fix_message(&message, &all_msg_map_collection.fix_tag_number_map) {
+    if let Ok(fix_details) = print_fix_message(&message, &all_msg_map_collection.fix_tag_number_map)
+    {
         println!("{}", fix_details);
     }
 
@@ -87,18 +88,26 @@ fn process_fix_message(
         if fix_message.validate(
             &all_msg_map_collection.required_fields,
             &all_msg_map_collection.valid_msg_types,
-            &all_msg_map_collection.msgnumber_fields_map.clone()
+            &all_msg_map_collection.msgnumber_fields_map.clone(),
         ) {
-            if let Ok((msgtype, msg_map)) = fixmsg2msgtype(&message, &all_msg_map_collection.fix_tag_number_map) {
+            if let Ok((msgtype, msg_map)) =
+                fixmsg2msgtype(&message, &all_msg_map_collection.fix_tag_number_map)
+            {
                 info!("Parsed message type: {}, map: {:?}", msgtype, msg_map);
 
                 let expected_incoming_seq_num = seq_store.get_incoming();
-                if let Some(incoming_seq_num) = msg_map.get("MsgSeqNum").and_then(|s| s.parse::<u64>().ok()) {
+                if let Some(incoming_seq_num) =
+                    msg_map.get("MsgSeqNum").and_then(|s| s.parse::<u64>().ok())
+                {
                     if expected_incoming_seq_num == incoming_seq_num {
-                        println!("Expected incoming seq num: {} vs msg.MsgSeqNum: {}", expected_incoming_seq_num, incoming_seq_num);
+                        println!(
+                            "Expected incoming seq num: {} vs msg.MsgSeqNum: {}",
+                            expected_incoming_seq_num, incoming_seq_num
+                        );
                         seq_store.increment_incoming();
 
-                        if is_admin_message(&msgtype, all_msg_map_collection.admin_msg_list.clone()) {
+                        if is_admin_message(&msgtype, all_msg_map_collection.admin_msg_list.clone())
+                        {
                             handle_admin_message(
                                 stream.try_clone().expect("Failed to clone stream"),
                                 &msgtype,
@@ -106,7 +115,7 @@ fn process_fix_message(
                                 &all_msg_map_collection.admin_msg,
                                 &all_msg_map_collection.fix_tag_name_map,
                                 message,
-                                Arc::clone(&seq_store)
+                                Arc::clone(&seq_store),
                             );
                         } else {
                             handle_business_message(
@@ -117,10 +126,9 @@ fn process_fix_message(
                                 &all_msg_map_collection.fix_tag_name_map,
                                 message,
                                 Arc::clone(&seq_store),
-                                Arc::clone(&order_store)
+                                Arc::clone(&order_store),
                             );
                         }
-
                     } else if expected_incoming_seq_num < incoming_seq_num {
                         if msgtype == "SEQUENCE_RESET" {
                             handle_admin_message(
@@ -130,24 +138,41 @@ fn process_fix_message(
                                 &all_msg_map_collection.admin_msg,
                                 &all_msg_map_collection.fix_tag_name_map,
                                 message,
-                                Arc::clone(&seq_store)
+                                Arc::clone(&seq_store),
                             );
                         } else {
                             println!("Resend Request, MsgSeqNum too high, expecting {} but received {}!!", expected_incoming_seq_num, incoming_seq_num);
-                            handle_resend_request(expected_incoming_seq_num, &msgtype, &all_msg_map_collection, Arc::clone(&seq_store), stream)?;
+                            handle_resend_request(
+                                expected_incoming_seq_num,
+                                &msgtype,
+                                &all_msg_map_collection,
+                                Arc::clone(&seq_store),
+                                stream,
+                            )?;
                         }
                     } else {
-                        let err_text : String = format!("MsgSeqNum too low, expecting {} but received {}!!", expected_incoming_seq_num, incoming_seq_num);
-                        handle_logout(&err_text, &msgtype, &all_msg_map_collection, Arc::clone(&seq_store), stream)?;
+                        let err_text: String = format!(
+                            "MsgSeqNum too low, expecting {} but received {}!!",
+                            expected_incoming_seq_num, incoming_seq_num
+                        );
+                        handle_logout(
+                            &err_text,
+                            &msgtype,
+                            &all_msg_map_collection,
+                            Arc::clone(&seq_store),
+                            stream,
+                        )?;
                         process::exit(1);
                     }
                 }
-
             } else {
                 error!("fixmsg2msgtype parse error: {}", modified_message);
             }
         } else {
-            error!("Dropping the message due to validation failure!!! - {}", modified_message);
+            error!(
+                "Dropping the message due to validation failure!!! - {}",
+                modified_message
+            );
         }
     }
     Ok(())
@@ -158,21 +183,24 @@ fn handle_resend_request(
     msgtype: &str,
     all_msg_map_collection: &MessageMap,
     seq_store: Arc<SequenceNumberStore>,
-    stream: &mut TcpStream
+    stream: &mut TcpStream,
 ) -> Result<(), io::Error> {
     println!("Resend Request!!!");
     let mut override_map: HashMap<String, String> = HashMap::new();
-    override_map.insert("BeginSeqNo".to_string(), expected_incoming_seq_num.to_string());
+    override_map.insert(
+        "BeginSeqNo".to_string(),
+        expected_incoming_seq_num.to_string(),
+    );
     let fix_msg: String = msgtype2fixmsg(
         "Resend_Request".to_string(),
         &all_msg_map_collection.admin_msg,
         &all_msg_map_collection.fix_tag_name_map,
         Some(&override_map),
-        seq_store.get_outgoing()
+        seq_store.get_outgoing(),
     );
     println!("{}", fix_msg);
     let modified_response = fix_msg.replace("|", "\x01");
-    let new_stream = stream.try_clone().unwrap();
+    let new_stream = stream.try_clone()?;
     let stream = Arc::new(Mutex::new(new_stream));
     if let Err(err) = send_message(&stream, modified_response) {
         error!("Failed to send resend request response: {}", err);
@@ -186,7 +214,7 @@ fn handle_logout(
     msgtype: &str,
     all_msg_map_collection: &MessageMap,
     seq_store: Arc<SequenceNumberStore>,
-    stream: &mut TcpStream
+    stream: &mut TcpStream,
 ) -> Result<(), io::Error> {
     let mut override_map: HashMap<String, String> = HashMap::new();
     override_map.insert("Text".to_string(), err_text.to_string());
@@ -195,11 +223,11 @@ fn handle_logout(
         &all_msg_map_collection.admin_msg,
         &all_msg_map_collection.fix_tag_name_map,
         Some(&override_map),
-        seq_store.get_outgoing()
+        seq_store.get_outgoing(),
     );
     println!("{}", fix_msg);
     let modified_response = fix_msg.replace("|", "\x01");
-    let new_stream = stream.try_clone().unwrap();
+    let new_stream = stream.try_clone()?;
     let stream = Arc::new(Mutex::new(new_stream));
     if let Err(err) = send_message(&stream, modified_response) {
         error!("Failed to send logout response: {}", err);
@@ -222,9 +250,15 @@ pub fn handle_admin_message(
     if SENT_LOGON.load(Ordering::SeqCst) && msgtype == "LOGON" {
         if IS_INITIATOR.load(Ordering::SeqCst) {
             RECEIVED_LOGON.store(true, Ordering::SeqCst);
-            info!("Initiator received the Logon message: RECEIVED_LOGON - {}", RECEIVED_LOGON.load(Ordering::SeqCst));
+            info!(
+                "Initiator received the Logon message: RECEIVED_LOGON - {}",
+                RECEIVED_LOGON.load(Ordering::SeqCst)
+            );
         }
-        info!("No message sent: SENT_LOGON - {}", SENT_LOGON.load(Ordering::SeqCst));
+        info!(
+            "No message sent: SENT_LOGON - {}",
+            SENT_LOGON.load(Ordering::SeqCst)
+        );
         return;
     }
     let response = match msgtype {
@@ -235,24 +269,24 @@ pub fn handle_admin_message(
 
             // Generate the FIX message for Logon
             msgtype2fixmsg(
-                "Logon".to_string(),         // The type of message
-                admin_msg,                   // The admin message
-                fix_tag_name_map,            // The FIX tag name map
-                None,                        // No overrides
-                seq_store.get_outgoing()     // The current outgoing sequence number
+                "Logon".to_string(),      // The type of message
+                admin_msg,                // The admin message
+                fix_tag_name_map,         // The FIX tag name map
+                None,                     // No overrides
+                seq_store.get_outgoing(), // The current outgoing sequence number
             )
-        },
+        }
 
         "HEARTBEAT" | "TEST_REQUEST" => {
             // Generate the FIX message for Heartbeat
             msgtype2fixmsg(
-                "Heartbeat".to_string(),     // The type of message
-                admin_msg,                   // The admin message
-                fix_tag_name_map,            // The FIX tag name map
-                None,                        // No overrides
-                seq_store.get_outgoing()     // The current outgoing sequence number
+                "Heartbeat".to_string(),  // The type of message
+                admin_msg,                // The admin message
+                fix_tag_name_map,         // The FIX tag name map
+                None,                     // No overrides
+                seq_store.get_outgoing(), // The current outgoing sequence number
             )
-        },
+        }
 
         "RESEND_REQUEST" => {
             // Create a new HashMap to hold the override mappings
@@ -261,16 +295,16 @@ pub fn handle_admin_message(
             override_map.insert("NewSeqNo".to_string(), seq_store.get_incoming().to_string());
             // Generate the FIX message for Sequence_Reset
             msgtype2fixmsg(
-                "Sequence_Reset".to_string(),  // The type of message
-                admin_msg,                     // The admin message
-                fix_tag_name_map,              // The FIX tag name map
-                Some(&override_map),            // The override map with the new sequence number
-                seq_store.get_outgoing()       // The current outgoing sequence number
+                "Sequence_Reset".to_string(), // The type of message
+                admin_msg,                    // The admin message
+                fix_tag_name_map,             // The FIX tag name map
+                Some(&override_map),          // The override map with the new sequence number
+                seq_store.get_outgoing(),     // The current outgoing sequence number
             )
-        },
+        }
 
         "SEQUENCE_RESET" => {
-            // Retrieve the value associated with "NewSeqNo" and attempt to parse it as a u64
+            // Retrieve the value associated with "NewSeqNo" and attempt to parse it as an u64
             let new_seqno: u64 = msg_map
                 .get("NewSeqNo")
                 .expect("NewSeqNo key missing in msg_map")
@@ -278,14 +312,18 @@ pub fn handle_admin_message(
                 .expect("Failed to parse NewSeqNo as u64");
 
             // Log the reset of the outgoing sequence number
-            info!("Resetting Outgoing Sequence number! {} -> {}", seq_store.get_outgoing(), new_seqno);
+            info!(
+                "Resetting Outgoing Sequence number! {} -> {}",
+                seq_store.get_outgoing(),
+                new_seqno
+            );
 
             // Update the outgoing sequence number
             seq_store.set_outgoing(new_seqno);
 
             // Return an empty string
             "".to_string()
-        },
+        }
         _ => "".to_string(),
     };
 
@@ -298,7 +336,10 @@ pub fn handle_admin_message(
         seq_store.increment_outgoing();
 
         LAST_SENT_TIME.store(Utc::now(), Ordering::SeqCst);
-        info!("Updated last sent time: {:?}", LAST_SENT_TIME.load(Ordering::SeqCst));
+        info!(
+            "Updated last sent time: {:?}",
+            LAST_SENT_TIME.load(Ordering::SeqCst)
+        );
     } else {
         info!("Nothing to send out!");
     }
@@ -317,12 +358,36 @@ pub fn handle_business_message(
     info!("Handling business message {}: {}", msgtype, message);
 
     let response = match msgtype {
-        "NEW_ORDER_SINGLE" => handle_new_order_single(msg_map, app_msg, fix_tag_name_map, seq_store.clone(), order_store.clone()),
-        "ORDER_CANCEL_REPLACE_REQUEST" => handle_order_cancel_replace_request(msg_map, app_msg, fix_tag_name_map, seq_store.clone(), order_store.clone()),
-        "ORDER_CANCEL_REQUEST" => handle_order_cancel_request(msg_map, app_msg, fix_tag_name_map, seq_store.clone(), order_store.clone()),
-        "EXECUTION_REPORT" => "".to_string(),  // TODO
+        "NEW_ORDER_SINGLE" => handle_new_order_single(
+            msg_map,
+            app_msg,
+            fix_tag_name_map,
+            seq_store.clone(),
+            order_store.clone(),
+        ),
+        "ORDER_CANCEL_REPLACE_REQUEST" => handle_order_cancel_replace_request(
+            msg_map,
+            app_msg,
+            fix_tag_name_map,
+            seq_store.clone(),
+            order_store.clone(),
+        ),
+        "ORDER_CANCEL_REQUEST" => handle_order_cancel_request(
+            msg_map,
+            app_msg,
+            fix_tag_name_map,
+            seq_store.clone(),
+            order_store.clone(),
+        ),
+        "EXECUTION_REPORT" => "".to_string(), // TODO
         // "BUSINESS_MESSAGE_REJECT" => msgtype2fixmsg("Business_Message_Reject".to_string(), app_msg, fix_tag_name_map, None, seq_store.get_outgoing()),
-        _ => msgtype2fixmsg("Business_Message_Reject".to_string(), app_msg, fix_tag_name_map, None, seq_store.get_outgoing()),
+        _ => msgtype2fixmsg(
+            "Business_Message_Reject".to_string(),
+            app_msg,
+            fix_tag_name_map,
+            None,
+            seq_store.get_outgoing(),
+        ),
     };
 
     if !response.is_empty() {
@@ -332,8 +397,7 @@ pub fn handle_business_message(
             error!("Failed to send business response: {}", err);
         }
         seq_store.increment_outgoing();
-    }
-    else {
+    } else {
         info!(" >>>> No message to send out");
     }
 }
@@ -354,8 +418,15 @@ fn handle_new_order_single(
     order_store: Arc<OrderStore>,
 ) -> String {
     // Add an order
-    if let (Some(clordid), Some(symbol), Some(side), Some(orderqty),
-        Some(price), Some(ordtype), Some(transacttime),) = (
+    if let (
+        Some(clordid),
+        Some(symbol),
+        Some(side),
+        Some(orderqty),
+        Some(price),
+        Some(ordtype),
+        Some(transacttime),
+    ) = (
         msg_map.get("ClOrdID"),
         msg_map.get("Symbol"),
         msg_map.get("Side"),
@@ -365,7 +436,7 @@ fn handle_new_order_single(
         msg_map.get("TransactTime"),
     ) {
         let mut msg_map_clone = msg_map.clone();
-        msg_map_clone.insert("OrdStatus".to_string(),"New".to_string());
+        msg_map_clone.insert("OrdStatus".to_string(), "New".to_string());
         add_order_to_store(order_store.clone(), &msg_map_clone).expect("Failed to add order");
 
         match order_store.print_orders() {
@@ -375,26 +446,26 @@ fn handle_new_order_single(
 
         if IS_INITIATOR.load(Ordering::SeqCst) {
             info!("Oops, got a new order single message from server!");
-            "".to_string()    // if client(initiator) get new order single nessage, it will be ignored!
+            "".to_string() // if client(initiator) get new order single nessage, it will be ignored!
         } else {
             info!("Preparing Execution_Report message for New Order Single Request");
             let override_map = prepare_execution_report(
-                Some(clordid),  // orderid
-                Some("XYZ123"), // execid
-                Some(msg_map.get("Account").unwrap_or(&"".to_string())),  // account
-                Some(symbol),   // symbol
-                Some(side),     // side
-                Some(ordtype),  // ordtype
-                Some(transacttime),  // transacttime
-                Some(orderqty),  // orderqty
-                Some("0"),  // lastshares
-                Some(price), // lastpx
-                Some("0"),  // leavesqty
-                Some("0"),  // cumqty
-                Some("0"),  // avgpx
-                Some("0"),  // exectranstype
-                Some("0"),  // exectype
-                Some("0")   // ordstatus
+                Some(clordid),                                           // orderid
+                Some("XYZ123"),                                          // execid
+                Some(msg_map.get("Account").unwrap_or(&"".to_string())), // account
+                Some(symbol),                                            // symbol
+                Some(side),                                              // side
+                Some(ordtype),                                           // ordtype
+                Some(transacttime),                                      // transacttime
+                Some(orderqty),                                          // orderqty
+                Some("0"),                                               // lastshares
+                Some(price),                                             // lastpx
+                Some("0"),                                               // leavesqty
+                Some("0"),                                               // cumqty
+                Some("0"),                                               // avgpx
+                Some("0"),                                               // exectranstype
+                Some("0"),                                               // exectype
+                Some("0"),                                               // ordstatus
             );
 
             msgtype2fixmsg(
@@ -407,28 +478,30 @@ fn handle_new_order_single(
         }
     } else {
         if IS_INITIATOR.load(Ordering::SeqCst) {
-            info!("Oops, got a new order single message which has some missing fields from server!");
-            "".to_string()    // if client(initiator) get new order single nessage, it will be ignored!
+            info!(
+                "Oops, got a new order single message which has some missing fields from server!"
+            );
+            "".to_string() // if client(initiator) get new order single nessage, it will be ignored!
         } else {
             error!("Missing fields in NEW_ORDER_SINGLE message");
 
             let override_map = prepare_execution_report(
-                Some(msg_map.get("ClOrdID").unwrap_or(&"".to_string())),  // orderid
-                Some("XYZ123"), // execid
-                Some(msg_map.get("Account").unwrap_or(&"".to_string())),  // account
-                Some(msg_map.get("Symbol").unwrap_or(&"".to_string())),   // symbol
-                Some(msg_map.get("Side").unwrap_or(&"".to_string())),     // side
-                Some(msg_map.get("OrdType").unwrap_or(&"".to_string())),  // ordtype
-                Some(msg_map.get("TransactTime").unwrap_or(&"".to_string())),  // transacttime
-                Some("0"),  // orderqty
-                Some("0"),  // lastshares
-                Some(msg_map.get("Price").unwrap_or(&"".to_string())), // lastpx
-                Some("0"),  // leavesqty
-                Some("0"),  // cumqty
-                Some("0"),  // avgpx
-                Some("0"),  // exectranstype
-                Some("8"),  // exectype
-                Some("8")   // ordstatus
+                Some(msg_map.get("ClOrdID").unwrap_or(&"".to_string())), // orderid
+                Some("XYZ123"),                                          // execid
+                Some(msg_map.get("Account").unwrap_or(&"".to_string())), // account
+                Some(msg_map.get("Symbol").unwrap_or(&"".to_string())),  // symbol
+                Some(msg_map.get("Side").unwrap_or(&"".to_string())),    // side
+                Some(msg_map.get("OrdType").unwrap_or(&"".to_string())), // ordtype
+                Some(msg_map.get("TransactTime").unwrap_or(&"".to_string())), // transacttime
+                Some("0"),                                               // orderqty
+                Some("0"),                                               // lastshares
+                Some(msg_map.get("Price").unwrap_or(&"".to_string())),   // lastpx
+                Some("0"),                                               // leavesqty
+                Some("0"),                                               // cumqty
+                Some("0"),                                               // avgpx
+                Some("0"),                                               // exectranstype
+                Some("8"),                                               // exectype
+                Some("8"),                                               // ordstatus
             );
 
             msgtype2fixmsg(
@@ -449,8 +522,16 @@ fn handle_order_cancel_replace_request(
     seq_store: Arc<SequenceNumberStore>,
     order_store: Arc<OrderStore>,
 ) -> String {
-    if let (Some(origclordid), Some(clordid), Some(symbol), Some(side), Some(orderqty),
-        Some(price), Some(ordtype), Some(transacttime),) = (
+    if let (
+        Some(origclordid),
+        Some(clordid),
+        Some(symbol),
+        Some(side),
+        Some(orderqty),
+        Some(price),
+        Some(ordtype),
+        Some(transacttime),
+    ) = (
         msg_map.get("OrigClOrdID"),
         msg_map.get("ClOrdID"),
         msg_map.get("Symbol"),
@@ -461,7 +542,7 @@ fn handle_order_cancel_replace_request(
         msg_map.get("TransactTime"),
     ) {
         let mut msg_map_clone = msg_map.clone();
-        msg_map_clone.insert("OrdStatus".to_string(),"Replaced".to_string());
+        msg_map_clone.insert("OrdStatus".to_string(), "Replaced".to_string());
         update_order_in_store(order_store.clone(), &msg_map_clone).expect("Failed to add order");
 
         match order_store.print_orders() {
@@ -470,27 +551,27 @@ fn handle_order_cancel_replace_request(
         };
         if IS_INITIATOR.load(Ordering::SeqCst) {
             info!("Oops, got a order cancel replace message from server!");
-            "".to_string()    // if client(initiator) get new order single nessage, it will be ignored!
+            "".to_string() // if client(initiator) get new order single nessage, it will be ignored!
         } else {
             info!("Preparing Execution_Report message for Cancel Replace Request");
 
             let override_map = prepare_execution_report(
-                Some(clordid),  // orderid
-                Some("XYZ123"), // execid
-                Some(msg_map.get("Account").unwrap_or(&"".to_string())),  // account
-                Some(symbol),   // symbol
-                Some(side),     // side
-                Some(ordtype),  // ordtype
-                Some(transacttime),  // transacttime
-                Some(orderqty),  // orderqty
-                Some("0"),  // lastshares
-                Some(price), // lastpx
-                Some("0"),  // leavesqty
-                Some("0"),  // cumqty
-                Some("0"),  // avgpx
-                Some("2"),  // exectranstype
-                Some("5"),  // exectype
-                Some("5")   // ordstatus
+                Some(clordid),                                           // orderid
+                Some("XYZ123"),                                          // execid
+                Some(msg_map.get("Account").unwrap_or(&"".to_string())), // account
+                Some(symbol),                                            // symbol
+                Some(side),                                              // side
+                Some(ordtype),                                           // ordtype
+                Some(transacttime),                                      // transacttime
+                Some(orderqty),                                          // orderqty
+                Some("0"),                                               // lastshares
+                Some(price),                                             // lastpx
+                Some("0"),                                               // leavesqty
+                Some("0"),                                               // cumqty
+                Some("0"),                                               // avgpx
+                Some("2"),                                               // exectranstype
+                Some("5"),                                               // exectype
+                Some("5"),                                               // ordstatus
             );
 
             msgtype2fixmsg(
@@ -498,13 +579,13 @@ fn handle_order_cancel_replace_request(
                 app_msg,
                 fix_tag_name_map,
                 Some(&override_map),
-                seq_store.get_outgoing()
+                seq_store.get_outgoing(),
             )
         }
     } else {
         if IS_INITIATOR.load(Ordering::SeqCst) {
             info!("Oops, got a order cancel replace message which has some missing fields from server!");
-            "".to_string()    // if client(initiator) get new order single nessage, it will be ignored!
+            "".to_string() // if client(initiator) get new order single nessage, it will be ignored!
         } else {
             error!("Missing fields in ORDER_CANCEL_REPLACE_REQUEST message");
             msgtype2fixmsg(
@@ -525,8 +606,16 @@ fn handle_order_cancel_request(
     seq_store: Arc<SequenceNumberStore>,
     order_store: Arc<OrderStore>,
 ) -> String {
-    if let (Some(origclordid), Some(clordid), Some(symbol), Some(side), Some(orderqty),
-        Some(price), Some(ordtype), Some(transacttime),) = (
+    if let (
+        Some(origclordid),
+        Some(clordid),
+        Some(symbol),
+        Some(side),
+        Some(orderqty),
+        Some(price),
+        Some(ordtype),
+        Some(transacttime),
+    ) = (
         msg_map.get("OrigClOrdID"),
         msg_map.get("ClOrdID"),
         msg_map.get("Symbol"),
@@ -537,7 +626,7 @@ fn handle_order_cancel_request(
         msg_map.get("TransactTime"),
     ) {
         let mut msg_map_clone = msg_map.clone();
-        msg_map_clone.insert("OrdStatus".to_string(),"Canceled".to_string());
+        msg_map_clone.insert("OrdStatus".to_string(), "Canceled".to_string());
         update_order_in_store(order_store.clone(), &msg_map_clone).expect("Failed to add order");
 
         match order_store.print_orders() {
@@ -547,34 +636,40 @@ fn handle_order_cancel_request(
 
         if IS_INITIATOR.load(Ordering::SeqCst) {
             info!("Oops, got a order cancel message from server!");
-            "".to_string()    // if client(initiator) get new order single message, it will be ignored!
+            "".to_string() // if client(initiator) get new order single message, it will be ignored!
         } else {
             info!("Preparing Execution_Report message for Cancel Request");
 
             let override_map = prepare_execution_report(
-                Some(clordid),  // orderid
-                Some("XYZ123"), // execid
-                None, // account
-                Some(symbol),   // symbol
-                Some(side),     // side
-                None, // ordtype
-                Some(transacttime),  // transacttime
-                None, // orderqty
-                None, // lastshares
-                None, // lastpx
-                None, // leavesqty
-                None, // cumqty
-                None, // avgpx
-                Some("1"),  // exectranstype
-                Some("4"),  // exectype
-                Some("4")   // ordstatus
+                Some(clordid),      // orderid
+                Some("XYZ123"),     // execid
+                None,               // account
+                Some(symbol),       // symbol
+                Some(side),         // side
+                None,               // ordtype
+                Some(transacttime), // transacttime
+                None,               // orderqty
+                None,               // lastshares
+                None,               // lastpx
+                None,               // leavesqty
+                None,               // cumqty
+                None,               // avgpx
+                Some("1"),          // exectranstype
+                Some("4"),          // exectype
+                Some("4"),          // ordstatus
             );
-            msgtype2fixmsg("Execution_Report".to_string(), app_msg, fix_tag_name_map, Some(&override_map), seq_store.get_outgoing())
+            msgtype2fixmsg(
+                "Execution_Report".to_string(),
+                app_msg,
+                fix_tag_name_map,
+                Some(&override_map),
+                seq_store.get_outgoing(),
+            )
         }
     } else {
         if IS_INITIATOR.load(Ordering::SeqCst) {
             info!("Oops, got a order cancel message which has some missing fields from server!");
-            "".to_string()    // if client(initiator) get new order single message, it will be ignored!
+            "".to_string() // if client(initiator) get new order single message, it will be ignored!
         } else {
             error!("Missing fields in ORDER_CANCEL_REQUEST message");
             msgtype2fixmsg(
@@ -587,7 +682,6 @@ fn handle_order_cancel_request(
         }
     }
 }
-
 
 fn insert_if_some_and_not_empty(map: &mut HashMap<String, String>, key: &str, value: Option<&str>) {
     if let Some(value) = value {
